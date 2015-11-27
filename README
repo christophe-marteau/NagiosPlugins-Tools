@@ -1,0 +1,15 @@
+NagiosPlugins
+=============
+
+This module provides an API to easily build a nagios plugins.
+
+The main idee is that a nagios plugins devel only focus on retrieving data and let API do the rest.
+
+Features :
+   - Create and manage options nagios plugins
+   - Build counters
+   - Parse and check thresholds
+
+EXAMPLE
+
+A simple memory check script can be found in "examples/check_memory.pl"

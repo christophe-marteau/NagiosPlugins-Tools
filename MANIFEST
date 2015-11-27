@@ -1,0 +1,10 @@
+Changes
+examples/check_memory.pl
+INSTALL
+lib/NagiosPlugins/Core.pm
+lib/NagiosPlugins/Counters.pm
+lib/NagiosPlugins/Debug.pm
+lib/NagiosPlugins/Objects.pm
+Makefile.PL
+MANIFEST			This list of files
+README
