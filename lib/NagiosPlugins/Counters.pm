@@ -9,6 +9,14 @@ use Scalar::Util 'blessed';
 our $VERSION = '1.00';
 
 # Function compute call the a function (none, delta, average, rate or user defined ) to compute value or performance data
+# [in] $computeType : The type of compute to apply to this counter. It can be on of these defined words :
+#                       - 'none' : no compute will be apply
+#                       - 'delta' : This formula "v(t2) - v(t1)" will be apply
+#                       - 'average' : This formula "( v(t2) - v(t1) ) / ( vl(t2) - vl(t1) )" will be apply
+#                       - 'rate' : This formula "( v(t2) - v(t1) ) / ( t2 - t1 )" will be apply
+#                       - a function name build by user in the main script (show examples for details)
+#                     It assumes that v(t2) is the current value of the counter and v(t1) is the previous value for the counter and that vl is 
+#                     a value of a secound counter linked to the v counter.
 sub compute() {
   my ( $self, $computeType ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::compute', 'BEGIN compute' );
@@ -25,176 +33,183 @@ sub compute() {
       }
     } else {
       &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::compute', 'END compute' );
-      croak( 'You must use a correct compute type ('.$computeType.') : "VALUE" or "PERFDATA"' );
+      croak( 'You must use a correct compute type ( '.$computeType.' ) : "VALUE" or "PERFDATA"' );
     }
   }
-  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::compute', 'compute('.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.', '.$computeType.' ) = "'.$self->{'_COUNTER_COMPUTED_VALUE'}.'"' );
+  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::compute', 'compute( '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.', '.$computeType.' ) = "'.$self->{'_COUNTER_VALUE_COMPUTED'}.'"' );
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::compute', 'END compute' );
 }
 
-# This set of global function is use for computing counter's value and perfdata value
-#   - none does nothing and return raw values
-#   - delta compute v(t2) - v(t1)
-#   - average compute ( v(t2) - v(t1) ) / ( vl(t2) - vl(t1) )
-#   - rate compute ( v(t2) - v(t1) ) / ( t2 - t1 ) 
+# Function none is a compute function that does nothing and leave counter value or perfdata unmodified
+# [in] $counter : A counter object
+# [in] $computeType : VALUE of PERFDATA to specify where to apply function in counter 
 our $none = sub {
   my ( $counter, $computeType ) = @_ ;
-  &NagiosPlugins::Debug::debug(9,'none','BEGIN none');
-  &NagiosPlugins::Debug::debug(8,'none','none('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')');
+  &NagiosPlugins::Debug::debug( 9, 'none', 'BEGIN none' );
+  &NagiosPlugins::Debug::debug( 8, 'none', 'none( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' )');
   my $counterName = '';
   if ( "$computeType" eq "VALUE" ) {
-    $counterName = '_COUNTER_COMPUTED_VALUE';
+    $counterName = '_COUNTER_VALUE_COMPUTED';
   } elsif ( "$computeType" eq "PERFDATA" ) {
     $counterName = '_COUNTER_PERFDATA_VALUE';
   } else {
-    croak('You must use a correct compute type ('.$computeType.') : "VALUE" or "PERFDATA"');
+    croak( 'You must use a correct compute type ( '.$computeType.' ) : "VALUE" or "PERFDATA"' );
   }
   $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy();
-  &NagiosPlugins::Debug::debug(9,'none','END none');
+  &NagiosPlugins::Debug::debug( 9, 'none', 'END none' );
 };
 
+# Function delta compute function modify counter value or perfdata with this formula : v(t2) - v(t1). It assumes that v(t2) 
+# is the current value of the counter and v(t1) is the previous value for the counter.
+# [in] $counter : A counter object
+# [in] $computeType : VALUE of PERFDATA to specify where to apply function in counter 
 our $delta = sub {
   my ( $counter, $computeType ) = @_ ;
-  &NagiosPlugins::Debug::debug(9,'delta','BEGIN delta');
-  &NagiosPlugins::Debug::debug(8,'delta','delta('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')');
+  &NagiosPlugins::Debug::debug( 9, 'delta', 'BEGIN delta' );
+  &NagiosPlugins::Debug::debug( 8, 'delta', 'delta( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' )');
   my $counterName = '';
   if ( "$computeType" eq "VALUE" ) {
-    $counterName = '_COUNTER_COMPUTED_VALUE';
+    $counterName = '_COUNTER_VALUE_COMPUTED';
   } elsif ( "$computeType" eq "PERFDATA" ) {
     $counterName = '_COUNTER_PERFDATA_VALUE';
   } else {
-    croak('You must use a correct compute type ('.$computeType.') : "VALUE" or "PERFDATA"');
+    croak( 'You must use a correct compute type ( '.$computeType.' ) : "VALUE" or "PERFDATA"' );
   }
   if ( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}->is_nan() ) {
     $counter->{'_COUNTER_MSG'} = 'Initializing counter '.$counter->{'_COUNTER_NAME'};
     $counter->{'_COUNTER_STATE'} = "UNKNOWN";
   } else {
-    if ( $counter->{'_COUNTER_VALUE_TIMESTAMP'}->bcmp($counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}) == 1 ) {
+    if ( $counter->{'_COUNTER_VALUE_TIMESTAMP'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'} ) == 1 ) {
       # We check if old value is set
-      if ( $counter->{'_COUNTER_PREVIOUS_VALUE'}->is_nan() ) {
-        croak( 'No previous value defined for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'], perhaps you have to load an object data first ...' );
+      if ( $counter->{'_COUNTER_VALUE_PREVIOUS'}->is_nan() ) {
+        croak( 'No previous value defined for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ], perhaps you have to load an object data first ...' );
       } else {
         # we check if old value is lower than current
-        if ( $counter->{'_COUNTER_VALUE'}->bcmp($counter->{'_COUNTER_PREVIOUS_VALUE'}) == 1 ) {
+        if ( $counter->{'_COUNTER_VALUE'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS'} ) == 1 ) {
           $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy()
-                                                                 ->bsub($counter->{'_COUNTER_PREVIOUS_VALUE'})
-                                                                 ->scale($counter->{'_COUNTER_VALUE_SCALE'})
-                                                                 ->ffround(-$counter->{'_COUNTER_VALUE_ROUND'});
-          &NagiosPlugins::Debug::debug(7,'delta','Computed value : ['.$counter->{$counterName}.'] = round['.$counter->{'_COUNTER_VALUE_ROUND'}.']( ( currentValue('.$counter->{'_COUNTER_VALUE'}.') - previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') ) x scale('.$counter->{'_COUNTER_VALUE_SCALE'}.') )');
-          if ( $counter->{$counterName}->bcmp($counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
-            $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ('.$counter->{'_COUNTER_VALUE_MAX'}.')';
+                                                                 ->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS'} )
+                                                                 ->scale( $counter->{'_COUNTER_VALUE_SCALE'} )
+                                                                 ->ffround( -$counter->{'_COUNTER_VALUE_ROUND'} );
+          &NagiosPlugins::Debug::debug( 7, 'delta', 'Computed value : [ '.$counter->{$counterName}.' ] = round[ '.$counter->{'_COUNTER_VALUE_ROUND'}.' ]( ( currentValue( '.$counter->{'_COUNTER_VALUE'}.' ) - previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) ) x scale( '.$counter->{'_COUNTER_VALUE_SCALE'}.' ) )' );
+          if ( $counter->{$counterName}->bcmp( $counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
+            $counter->{'_COUNTER_MSG'} = 'Computed counter value ( '.$counter->{$counterName}.' ) is over counter value limit ( '.$counter->{'_COUNTER_VALUE_MAX'}.' )';
             $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
           }
         # we check if old value is greater than current
-        } elsif ( $counter->{'_COUNTER_VALUE'}->bcmp($counter->{'_COUNTER_PREVIOUS_VALUE'}) == -1 )  {
+        } elsif ( $counter->{'_COUNTER_VALUE'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS'} ) == -1 )  {
           if ( ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_nan() ) or
-               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf('-') ) or
-               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf('+') ) ) {
-            croak( 'No finite max value defined for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'], perhaps you have to set it ...' );
+               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf( '-' ) ) or
+               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf( '+' ) ) ) {
+            croak( 'No finite max value defined for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ], perhaps you have to set it ...' );
           } else {
             $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy()
-                                                                   ->badd($counter->{'_COUNTER_VALUE_LIMIT_MAX'})
-                                                                   ->bsub($counter->{'_COUNTER_PREVIOUS_VALUE'})
-                                                                   ->scale($counter->{'_COUNTER_VALUE_SCALE'})
-                                                                   ->ffround(-$counter->{'_COUNTER_VALUE_ROUND'});
-            &NagiosPlugins::Debug::debug(7,'delta','Computed value : ['.$counter->{$counterName}.'] = round['.$counter->{'_COUNTER_VALUE_ROUND'}.']( ( ( currentValue('.$counter->{'_COUNTER_VALUE'}.') + maxValue('.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.') ) - previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') ) x scale('.$counter->{'_COUNTER_VALUE_SCALE'}.') )');
+                                                                   ->badd( $counter->{'_COUNTER_VALUE_LIMIT_MAX'} )
+                                                                   ->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS'} )
+                                                                   ->scale( $counter->{'_COUNTER_VALUE_SCALE'} )
+                                                                   ->ffround( -$counter->{'_COUNTER_VALUE_ROUND'} );
+            &NagiosPlugins::Debug::debug( 7, 'delta', 'Computed value : [ '.$counter->{$counterName}.' ] = round[ '.$counter->{'_COUNTER_VALUE_ROUND'}.' ]( ( ( currentValue( '.$counter->{'_COUNTER_VALUE'}.' ) + maxValue( '.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) ) - previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) ) x scale( '.$counter->{'_COUNTER_VALUE_SCALE'}.' ) )' );
           }
-          if ( $counter->{$counterName}->bcmp($counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
-            $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ('.$counter->{'_COUNTER_VALUE_MAX'}.')';
+          if ( $counter->{$counterName}->bcmp( $counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
+            $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ( '.$counter->{'_COUNTER_VALUE_MAX'}.' )';
             $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
           }
         } else {
           # We have same value, delta = 0
-          &NagiosPlugins::Debug::debug(7,'delta','Computed value : [0] ( previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') == currentValue('.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.') )');
-          $counter->{$counterName} = Math::BigFloat->new(0);
+          &NagiosPlugins::Debug::debug( 7, 'delta', 'Computed value : [ 0 ] ( previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) == currentValue( '.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) )' );
+          $counter->{$counterName} = Math::BigFloat->new( 0 );
         }
       }
     } else {
-      $counter->{'_COUNTER_MSG'} = 'Not enough time between old timestamp ('.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.') and newtimestamp ('.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.')';
+      $counter->{'_COUNTER_MSG'} = 'Not enough time between old timestamp ( '.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.' ) and newtimestamp ( '.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.' )';
       $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
     }
   }
-  &NagiosPlugins::Debug::debug(8,'delta','delta('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')='.$counter->{$counterName});
-  &NagiosPlugins::Debug::debug(9,'delta','END delta');
+  &NagiosPlugins::Debug::debug( 8, 'delta', 'delta( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' )= '.$counter->{$counterName} );
+  &NagiosPlugins::Debug::debug( 9, 'delta', 'END delta' );
 };
 
+# Function average compute function modify counter value or perfdata with this formula : ( v(t2) - v(t1) ) / ( vl(t2) - vl(t1) ).
+# It assumes that v(t2) is the current value of the counter and v(t1) is the previous value for the counter and that vl is a value
+# of a secound counter linked to the v counter.
+# [in] $counter : A counter object
+# [in] $computeType : VALUE of PERFDATA to specify where to apply function in counter 
 our $average = sub {
   my ( $counter, $computeType ) = @_ ;
-  &NagiosPlugins::Debug::debug(9,'average','BEGIN average');
-  &NagiosPlugins::Debug::debug(8,'average','average('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')');
+  &NagiosPlugins::Debug::debug( 9, 'average', 'BEGIN average' );
+  &NagiosPlugins::Debug::debug( 8, 'average', 'average( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' )');
   # We check first if old timestamp is set and is lower than current timestamp
   my $linkedCounter = undef;
   if ( defined( $counter->{'_COUNTER_LINK'} ) ) {
     $linkedCounter = $counter->{'_COUNTER_LINK'};
   } else {
-    croak( 'You must defined a linked counter for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'] to compute average.' );
+    croak( 'You must defined a linked counter for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ] to compute average.' );
   }
   my $counterName = '';
   if ( "$computeType" eq "VALUE" ) {
-    $counterName = '_COUNTER_COMPUTED_VALUE';
+    $counterName = '_COUNTER_VALUE_COMPUTED';
   } elsif ( "$computeType" eq "PERFDATA" ) {
     $counterName = '_COUNTER_PERFDATA_VALUE';
   } else {
-    croak('You must use a correct compute type ('.$computeType.') : "VALUE" or "PERFDATA"');
+    croak('You must use a correct compute type ( '.$computeType.' ) : "VALUE" or "PERFDATA"');
   }
   if ( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}->is_nan() ) {
     $counter->{'_COUNTER_MSG'} = 'Initializing counter '.$counter->{'_COUNTER_NAME'};
     $counter->{'_COUNTER_STATE'} = "UNKNOWN";
   } else {
-    if ( $counter->{'_COUNTER_VALUE_TIMESTAMP'}->bcmp($counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}) == 1 ) {
+    if ( $counter->{'_COUNTER_VALUE_TIMESTAMP'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'} ) == 1 ) {
       # We check if old value is set
-      if ( $counter->{'_COUNTER_PREVIOUS_VALUE'}->is_nan() ) {
-        croak( 'No previous value defined for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'], perhaps you have to load an object data first ...' );
-      } elsif ( $linkedCounter->{'_COUNTER_PREVIOUS_VALUE'}->is_nan() ) {
-        croak( 'No previous value defined for counter ['.$linkedCounter->{'_COUNTER_ID'}.','.$linkedCounter->{'_COUNTER_NAME'}.'], perhaps you have to load an object data first ...' );
+      if ( $counter->{'_COUNTER_VALUE_PREVIOUS'}->is_nan() ) {
+        croak( 'No previous value defined for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ], perhaps you have to load an object data first ...' );
+      } elsif ( $linkedCounter->{'_COUNTER_VALUE_PREVIOUS'}->is_nan() ) {
+        croak( 'No previous value defined for counter [ '.$linkedCounter->{'_COUNTER_ID'}.', '.$linkedCounter->{'_COUNTER_NAME'}.' ], perhaps you have to load an object data first ...' );
       } else {
         my $averageBase = Math::BigFloat->new( 0 );
-        if ( $linkedCounter->{'_COUNTER_VALUE'}->bcmp($linkedCounter->{'_COUNTER_PREVIOUS_VALUE'}) == 1 ) {
+        if ( $linkedCounter->{'_COUNTER_VALUE'}->bcmp( $linkedCounter->{'_COUNTER_VALUE_PREVIOUS'} ) == 1 ) {
           $averageBase = $linkedCounter->{'_COUNTER_VALUE'}->copy()
-                                                           ->bsub($linkedCounter->{'_COUNTER_PREVIOUS_VALUE'});
-          &NagiosPlugins::Debug::debug(7,'average','Average base  ['.$averageBase.'] = ( currentLinkedCounterValue('.$linkedCounter->{'_COUNTER_VALUE'}.') - previousLinkedCounterValue('.$linkedCounter->{'_COUNTER_PREVIOUS_VALUE'}.') )');
+                                                           ->bsub( $linkedCounter->{'_COUNTER_VALUE_PREVIOUS'} );
+          &NagiosPlugins::Debug::debug( 7, 'average', 'Average base  [ '.$averageBase.' ] = ( currentLinkedCounterValue( '.$linkedCounter->{'_COUNTER_VALUE'}.' ) - previousLinkedCounterValue( '.$linkedCounter->{'_COUNTER_VALUE_PREVIOUS'}.' ) )' );
         } else {
           $averageBase = $linkedCounter->{'_COUNTER_VALUE'}->copy()
-                                                           ->badd($linkedCounter->{'_COUNTER_VALUE_LIMIT_MAX'})
-                                                           ->bsub($linkedCounter->{'_COUNTER_PREVIOUS_VALUE'});
-          &NagiosPlugins::Debug::debug(7,'average','Average base  ['.$averageBase.'] = ( ( currentLinkedCounterValue('.$linkedCounter->{'_COUNTER_VALUE'}.') + maxLinkedCounterValue('.$linkedCounter->{'_COUNTER_VALUE_LIMIT_MAX'}.') ) - previousLinkedCounterValue('.$linkedCounter->{'_COUNTER_PREVIOUS_VALUE'}.') )');
+                                                           ->badd( $linkedCounter->{'_COUNTER_VALUE_LIMIT_MAX'} ) 
+                                                           ->bsub( $linkedCounter->{'_COUNTER_VALUE_PREVIOUS'} );
+          &NagiosPlugins::Debug::debug( 7, 'average', 'Average base [ '.$averageBase.' ] = ( ( currentLinkedCounterValue( '.$linkedCounter->{'_COUNTER_VALUE'}.' ) + maxLinkedCounterValue( '.$linkedCounter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) ) - previousLinkedCounterValue( '.$linkedCounter->{'_COUNTER_VALUE_PREVIOUS'}.' ) )' );
         }
         if ( $averageBase->bcmp( 0 ) == 1 ) {
           # we check if old value is lower than current
-          if ( $counter->{'_COUNTER_VALUE'}->bcmp($counter->{'_COUNTER_PREVIOUS_VALUE'}) == 1 ) {
+          if ( $counter->{'_COUNTER_VALUE'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS'} ) == 1 ) {
             $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy()
-                                                                   ->bsub($counter->{'_COUNTER_PREVIOUS_VALUE'})
-                                                                   ->bdiv($averageBase)
-                                                                   ->bmul($counter->{'_COUNTER_VALUE_SCALE'})
-                                                                   ->ffround(-$counter->{'_COUNTER_VALUE_ROUND'});
-            &NagiosPlugins::Debug::debug(7,'average','Computed value : ['.$counter->{$counterName}.'] = round['.$counter->{'_COUNTER_VALUE_ROUND'}.']( ( ( currentValue('.$counter->{'_COUNTER_VALUE'}.') - previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') ) / averageBase('.$averageBase.') ) x scale('.$counter->{'_COUNTER_VALUE_SCALE'}.') )');
+                                                                   ->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS'} )
+                                                                   ->bdiv( $averageBase )
+                                                                   ->bmul( $counter->{'_COUNTER_VALUE_SCALE'} )
+                                                                   ->ffround( -$counter->{'_COUNTER_VALUE_ROUND'} );
+            &NagiosPlugins::Debug::debug( 7, 'average', 'Computed value : [ '.$counter->{$counterName}.' ] = round[ '.$counter->{'_COUNTER_VALUE_ROUND'}.' ]( ( ( currentValue( '.$counter->{'_COUNTER_VALUE'}.' ) - previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) ) / averageBase( '.$averageBase.' ) ) x scale( '.$counter->{'_COUNTER_VALUE_SCALE'}.' ) )' );
             if ( $counter->{$counterName}->bcmp($counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
-              $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ('.$counter->{'_COUNTER_VALUE_MAX'}.')';
+              $counter->{'_COUNTER_MSG'} = 'Computed counter value ( '.$counter->{$counterName}.' ) is over counter value limit ( '.$counter->{'_COUNTER_VALUE_MAX'}.' )';
               $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
             }
           # we check if old value is greater than current
-          } elsif ( $counter->{'_COUNTER_VALUE'}->bcmp($counter->{'_COUNTER_PREVIOUS_VALUE'}) == -1 )  {
+          } elsif ( $counter->{'_COUNTER_VALUE'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS'} ) == -1 )  {
             if ( ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_nan() ) or
-                 ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf('-') ) or
-                 ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf('+') ) ) {
-              croak( 'No finite max value defined for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'], perhaps you have to set it ...' );
+                 ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf( '-' ) ) or
+                 ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf( '+' ) ) ) {
+              croak( 'No finite max value defined for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ], perhaps you have to set it ...' );
             } else {
               $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy()
-                                                                     ->badd($counter->{'_COUNTER_VALUE_LIMIT_MAX'})
-                                                                     ->bsub($counter->{'_COUNTER_PREVIOUS_VALUE'})
-                                                                     ->bdiv($averageBase)
-                                                                     ->bmul($counter->{'_COUNTER_VALUE_SCALE'})
-                                                                     ->ffround(-$counter->{'_COUNTER_VALUE_ROUND'});
-              &NagiosPlugins::Debug::debug(7,'average','Computed value : ['.$counter->{$counterName}.'] = round['.$counter->{'_COUNTER_VALUE_ROUND'}.']( ( ( ( currentValue('.$counter->{'_COUNTER_VALUE'}.') + maxValue('.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.') ) - previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') ) / averageBase('.$averageBase.') ) x scale('.$counter->{'_COUNTER_VALUE_SCALE'}.') )');
+                                                                     ->badd( $counter->{'_COUNTER_VALUE_LIMIT_MAX'} )
+                                                                     ->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS'} )
+                                                                     ->bdiv( $averageBase )
+                                                                     ->bmul( $counter->{'_COUNTER_VALUE_SCALE'} )
+                                                                     ->ffround( -$counter->{'_COUNTER_VALUE_ROUND'} );
+              &NagiosPlugins::Debug::debug( 7, 'average', 'Computed value : [ '.$counter->{$counterName}.' ] = round[ '.$counter->{'_COUNTER_VALUE_ROUND'}.' ]( ( ( ( currentValue( '.$counter->{'_COUNTER_VALUE'}.' ) + maxValue( '.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) ) - previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) ) / averageBase( '.$averageBase.' ) ) x scale( '.$counter->{'_COUNTER_VALUE_SCALE'}.' ) )' );
             }
-            if ( $counter->{$counterName}->bcmp($counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
-              $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ('.$counter->{'_COUNTER_VALUE_MAX'}.')';
+            if ( $counter->{$counterName}->bcmp( $counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
+              $counter->{'_COUNTER_MSG'} = 'Computed counter value ( '.$counter->{$counterName}.' ) is over counter value limit ( '.$counter->{'_COUNTER_VALUE_MAX'}.' )';
               $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
             }
           } else {
             # We have same value, average = 0
-            &NagiosPlugins::Debug::debug(7,'average','Computed value : [0] ( previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') == currentValue('.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.') )');
-            $counter->{$counterName} = Math::BigFloat->new(0);
+            &NagiosPlugins::Debug::debug( 7, 'average', 'Computed value : [ 0 ] ( previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) == currentValue( '.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) )' );
+            $counter->{$counterName} = Math::BigFloat->new( 0 );
           }
         } else {
           $counter->{'_COUNTER_MSG'} = 'Average base is zero. We can\'t compute average';
@@ -202,102 +217,98 @@ our $average = sub {
         }
       }
     } else {
-      $counter->{'_COUNTER_MSG'} = 'Not enough time between old timestamp ('.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.') and newtimestamp ('.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.')';
+      $counter->{'_COUNTER_MSG'} = 'Not enough time between old timestamp ( '.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.' ) and newtimestamp ( '.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.' )';
       $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
     }
   }
-  &NagiosPlugins::Debug::debug(8,'average','average('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')='.$counter->{$counterName});
-  &NagiosPlugins::Debug::debug(9,'average','END average');
+  &NagiosPlugins::Debug::debug( 8, 'average', 'average( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' ) = '.$counter->{$counterName} );
+  &NagiosPlugins::Debug::debug( 9, 'average', 'END average' );
 };
 
+# Function average compute function modify counter value or perfdata with this formula : ( v(t2) - v(t1) ) / ( t2 - t1 ).
+# It assumes that v(t2) is the current value of the counter and v(t1) is the previous value for the counter.
+# [in] $counter : A counter object
+# [in] $computeType : VALUE of PERFDATA to specify where to apply function in counter 
 our $rate = sub {
   my ( $counter, $computeType ) = @_ ;
-  &NagiosPlugins::Debug::debug(9,'rate','BEGIN rate');
-  &NagiosPlugins::Debug::debug(8,'rate','rate('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')');
+  &NagiosPlugins::Debug::debug( 9, 'rate', 'BEGIN rate' );
+  &NagiosPlugins::Debug::debug( 8, 'rate', 'rate( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' )' );
   # We check first if old timestamp is set and is lower than current timestamp
   my $counterName = '';
   if ( "$computeType" eq "VALUE" ) {
-    $counterName = '_COUNTER_COMPUTED_VALUE';
+    $counterName = '_COUNTER_VALUE_COMPUTED';
   } elsif ( "$computeType" eq "PERFDATA" ) {
     $counterName = '_COUNTER_PERFDATA_VALUE';
   } else {
-    croak('You must use a correct compute type ('.$computeType.') : "VALUE" or "PERFDATA"');
+    croak( 'You must use a correct compute type ( '.$computeType.' ) : "VALUE" or "PERFDATA"' );
   }
   if ( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}->is_nan() ) {
     $counter->{'_COUNTER_MSG'} = 'Initializing counter '.$counter->{'_COUNTER_NAME'};
     $counter->{'_COUNTER_STATE'} = "UNKNOWN";
   } else {
-    if ( $counter->{'_COUNTER_VALUE_TIMESTAMP'}->bcmp($counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}) == 1 ) {
-      my $elapsedTime = $counter->{'_COUNTER_VALUE_TIMESTAMP'}->copy()->bsub($counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'});
-      &NagiosPlugins::Debug::debug(7,'rate','Elapsed time from last check : ['.$elapsedTime.'] = timeStamp('.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.') - previousTimeStamp('.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.')');
+    if ( $counter->{'_COUNTER_VALUE_TIMESTAMP'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'} ) == 1 ) {
+      my $elapsedTime = $counter->{'_COUNTER_VALUE_TIMESTAMP'}->copy()->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'} );
+      &NagiosPlugins::Debug::debug( 7, 'rate', 'Elapsed time from last check : [ '.$elapsedTime.' ] = timeStamp( '.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.' ) - previousTimeStamp( '.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.' )' );
       # We check if old value is set
-      if ( $counter->{'_COUNTER_PREVIOUS_VALUE'}->is_nan() ) {
-        croak( 'No previous value defined for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'], perhaps you have to load an object data first ...' );
+      if ( $counter->{'_COUNTER_VALUE_PREVIOUS'}->is_nan() ) {
+        croak( 'No previous value defined for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ], perhaps you have to load an object data first ...' );
       } else {
         # we check if old value is lower than current
-        if ( $counter->{'_COUNTER_VALUE'}->bcmp($counter->{'_COUNTER_PREVIOUS_VALUE'}) == 1 ) {
+        if ( $counter->{'_COUNTER_VALUE'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS'} ) == 1 ) {
           $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy()
-                                                                 ->bsub($counter->{'_COUNTER_PREVIOUS_VALUE'})
-                                                                 ->bdiv($elapsedTime)
-                                                                 ->bmul($counter->{'_COUNTER_VALUE_SCALE'})
-                                                                 ->ffround(-$counter->{'_COUNTER_VALUE_ROUND'});
-          &NagiosPlugins::Debug::debug(7,'rate','Computed value : ['.$counter->{$counterName}.'] = round['.$counter->{'_COUNTER_VALUE_ROUND'}.']( ( ( currentValue('.$counter->{'_COUNTER_VALUE'}.') - previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') ) / elapsedTime('.$elapsedTime.') ) x scale('.$counter->{'_COUNTER_VALUE_SCALE'}.') )');
-          if ( $counter->{$counterName}->bcmp($counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
-            $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ('.$counter->{'_COUNTER_VALUE_MAX'}.')';
+                                                                 ->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS'} )
+                                                                 ->bdiv( $elapsedTime )
+                                                                 ->bmul( $counter->{'_COUNTER_VALUE_SCALE'} )
+                                                                 ->ffround( -$counter->{'_COUNTER_VALUE_ROUND'} );
+          &NagiosPlugins::Debug::debug( 7, 'rate', 'Computed value : [ '.$counter->{$counterName}.' ] = round[ '.$counter->{'_COUNTER_VALUE_ROUND'}.' ]( ( ( currentValue( '.$counter->{'_COUNTER_VALUE'}.' ) - previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) ) / elapsedTime( '.$elapsedTime.' ) ) x scale( '.$counter->{'_COUNTER_VALUE_SCALE'}.' ) )');
+          if ( $counter->{$counterName}->bcmp( $counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
+            $counter->{'_COUNTER_MSG'} = 'Computed counter value ( '.$counter->{$counterName}.' ) is over counter value limit ( '.$counter->{'_COUNTER_VALUE_MAX'}.' )';
             $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
           }
         # we check if old value is greater than current
-        } elsif ( $counter->{'_COUNTER_VALUE'}->bcmp($counter->{'_COUNTER_PREVIOUS_VALUE'}) == -1 )  {
+        } elsif ( $counter->{'_COUNTER_VALUE'}->bcmp( $counter->{'_COUNTER_VALUE_PREVIOUS'} ) == -1 )  {
           if ( ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_nan() ) or
-               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf('-') ) or
-               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf('+') ) ) {
-            croak( 'No finite max value defined for counter ['.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.'], perhaps you have to set it ...' );
+               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf( '-' ) ) or
+               ( $counter->{'_COUNTER_VALUE_LIMIT_MAX'}->is_inf( '+' ) ) ) {
+            croak( 'No finite max value defined for counter [ '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.' ], perhaps you have to set it ...' );
           } else {
             $counter->{$counterName} = $counter->{'_COUNTER_VALUE'}->copy()
-                                                                   ->badd($counter->{'_COUNTER_VALUE_LIMIT_MAX'})
-                                                                   ->bsub($counter->{'_COUNTER_PREVIOUS_VALUE'})
-                                                                   ->bdiv($elapsedTime)
-                                                                   ->bmul($counter->{'_COUNTER_VALUE_SCALE'})
-                                                                   ->ffround(-$counter->{'_COUNTER_VALUE_ROUND'});
-            &NagiosPlugins::Debug::debug(7,'rate','Computed value : ['.$counter->{$counterName}.'] = round['.$counter->{'_COUNTER_VALUE_ROUND'}.']( ( ( ( ( currentValue('.$counter->{'_COUNTER_VALUE'}.') + maxValue('.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.') ) - previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') ) / elapsedTime('.$elapsedTime.') ) ) x scale('.$counter->{'_COUNTER_VALUE_SCALE'}.') )');
+                                                                   ->badd( $counter->{'_COUNTER_VALUE_LIMIT_MAX'} )
+                                                                   ->bsub( $counter->{'_COUNTER_VALUE_PREVIOUS'} )
+                                                                   ->bdiv( $elapsedTime )
+                                                                   ->bmul( $counter->{'_COUNTER_VALUE_SCALE'} )
+                                                                   ->ffround( -$counter->{'_COUNTER_VALUE_ROUND'} );
+            &NagiosPlugins::Debug::debug( 7, 'rate', 'Computed value : [ '.$counter->{$counterName}.' ] = round[ '.$counter->{'_COUNTER_VALUE_ROUND'}.' ]( ( ( ( ( currentValue( '.$counter->{'_COUNTER_VALUE'}.' ) + maxValue( '.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) ) - previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) ) / elapsedTime( '.$elapsedTime.' ) ) ) x scale( '.$counter->{'_COUNTER_VALUE_SCALE'}.' ) )' );
           }
-          if ( $counter->{$counterName}->bcmp($counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
-            $counter->{'_COUNTER_MSG'} = 'Computed counter value ('.$counter->{$counterName}.') is over counter value limit ('.$counter->{'_COUNTER_VALUE_MAX'}.')';
+          if ( $counter->{$counterName}->bcmp( $counter->{'_COUNTER_VALUE_MAX'} ) == 1 ) {
+            $counter->{'_COUNTER_MSG'} = 'Computed counter value ( '.$counter->{$counterName}.' ) is over counter value limit ( '.$counter->{'_COUNTER_VALUE_MAX'}.' )';
             $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
           }
         } else {
           # We have same value, rate = 0
-          &NagiosPlugins::Debug::debug(7,'rate','Computed value : [0] ( previousValue('.$counter->{'_COUNTER_PREVIOUS_VALUE'}.') == currentValue('.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.') )');
-          $counter->{$counterName} = Math::BigFloat->new(0);
+          &NagiosPlugins::Debug::debug( 7, 'rate', 'Computed value : [ 0 ] ( previousValue( '.$counter->{'_COUNTER_VALUE_PREVIOUS'}.' ) == currentValue( '.$counter->{'_COUNTER_VALUE_LIMIT_MAX'}.' ) )' );
+          $counter->{$counterName} = Math::BigFloat->new( 0 );
         }
       }
     } else {
-      $counter->{'_COUNTER_MSG'} = 'Not enough time between old timestamp ('.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.') and newtimestamp ('.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.')';
+      $counter->{'_COUNTER_MSG'} = 'Not enough time between old timestamp ( '.$counter->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.' ) and newtimestamp ( '.$counter->{'_COUNTER_VALUE_TIMESTAMP'}.' )';
       $counter->{'_COUNTER_STATE'} = 'UNKNOWN';
     }
   }
-  &NagiosPlugins::Debug::debug(8,'rate','rate('.$counter->{'_COUNTER_ID'}.','.$counter->{'_COUNTER_NAME'}.','.$computeType.')='.$counter->{$counterName});
-  &NagiosPlugins::Debug::debug(9,'rate','END rate');
+  &NagiosPlugins::Debug::debug( 8, 'rate', 'rate( '.$counter->{'_COUNTER_ID'}.', '.$counter->{'_COUNTER_NAME'}.', '.$computeType.' ) = '.$counter->{$counterName} );
+  &NagiosPlugins::Debug::debug( 9, 'rate', 'END rate' );
 };
 
 # Function convertToHumanReadable try to convert values in human readable values displayed in nagios message
+# [in] $value : The value to convert in human readable
+# [in] $unit : The unit of the value. Must be 'seconds', 'bytes', 'octets' or 'bits'
 # Support only theses units : 
-#   - second
+#   - seconds
 #   - bytes/octets
 #   - bits
 # Support only unit factors :
-#   - mili 
-#   - micro
-#   - nano
-#   - pico
-#   - kilo
-#   - mega
-#   - giga
-#   - tera
-#   - peta
-#   - exa
-#   - zetta
-#   - yotta
+#   - milli, micro, nano, pico,
+#   - kilo, mega, giga, tera, peta, exa, zetta, yotta
 sub convertToHumanReadable() {
  my ( $value, $unit ) = @_;
  &NagiosPlugins::Debug::debug( 9, 'convertToHumanReadable', 'BEGIN convertToHumanReadable' );
@@ -323,7 +334,7 @@ sub convertToHumanReadable() {
                     '7' => 'Z',
                     '8' => 'Y'
                   };
-  if ( $unit =~ /^\s*(s|sec|second)\s*$/ ) {
+  if ( $unit =~ /^\s*(s|sec|seconds?)\s*$/ ) {
     $realUnit = 's';
   } elsif ( $unit =~ /^\s*([oObB])(ctet|it|yte)?s?(\s*\/\s*s)?\s*$/ ){
     my $unitParsed = $1;
@@ -381,7 +392,7 @@ sub convertToHumanReadable() {
   return( $convertedValue );
 }
 
-# Function parseThreshold is use to parse counters warning and critical thresholds, to start and end thresholds ranges, and to check if ranges are sane
+# Function parseThreshold is use to parse counters warning and critical thresholds, start and end thresholds ranges, and to check if ranges are sane
 sub parseThreshold () {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::parseThreshold', 'BEGIN parseThreshold' );
@@ -426,7 +437,7 @@ sub parseThreshold () {
         }
         # End range value must be equal or greater than start range value
         if ( $endRangeValue->bcmp( $startRangeValue ) == -1 ) {
-          $self->{'_COUNTER_MSG'} = 'End range value ('.$endRangeValue.') must be equal or greater than start range value ('.$startRangeValue.') for '.$thresholdType.' threshold';
+          $self->{'_COUNTER_MSG'} = 'End range value ( '.$endRangeValue.' ) must be equal or greater than start range value ( '.$startRangeValue.' ) for '.$thresholdType.' threshold';
           $self->{'_COUNTER_STATE'} = 'UNKNOWN';
         } else {
           $self->{'_COUNTER_'.$thresholdType.'_THRESHOLD_MIN'} = Math::BigFloat->new( $startRangeValue );
@@ -434,11 +445,11 @@ sub parseThreshold () {
           $self->{'_COUNTER_'.$thresholdType.'_THRESHOLD_RANGE_TYPE'} = $rangeType;
         }
       } else {
-        $self->{'_COUNTER_MSG'} = 'Unable to parse '.$thresholdType.' threshold ('.$self->{'_COUNTER_'.$thresholdType.'_THRESHOLD'}.')';
+        $self->{'_COUNTER_MSG'} = 'Unable to parse '.$thresholdType.' threshold ( '.$self->{'_COUNTER_'.$thresholdType.'_THRESHOLD'}.' )';
         $self->{'_COUNTER_STATE'} = 'UNKNOWN';
       }
       &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::parseThreshold', $self->{'_COUNTER_'.$thresholdType.'_THRESHOLD_MIN'}.' < '.
-                                                                          $self->{'_COUNTER_NAME'}.' ('.$thresholdType.') < '.
+                                                                          $self->{'_COUNTER_NAME'}.' ( '.$thresholdType.' ) < '.
                                                                           $self->{'_COUNTER_'.$thresholdType.'_THRESHOLD_MAX'} );
     }
     if ( $rangeType eq 'inside' ) {
@@ -492,38 +503,38 @@ sub parseThreshold () {
 sub checkThreshold () {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::checkThreshold', 'BEGIN checkThreshold' );
-  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::checkThreshold', 'checkThreshold( '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' )');
+  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::checkThreshold', 'checkThreshold( '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' )' );
   if ( $self->{'_COUNTER_HIDDEN'} ) {
     &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::checkThreshold', 'Hidden counter, nothing to do.' );
   } else {
-    if ( ( defined( $self->{'_COUNTER_COMPUTED_VALUE'} ) ) and ( not( $self->{'_COUNTER_COMPUTED_VALUE'}->is_nan() ) ) ) {
+    if ( ( defined( $self->{'_COUNTER_VALUE_COMPUTED'} ) ) and ( not( $self->{'_COUNTER_VALUE_COMPUTED'}->is_nan() ) ) ) {
       my $counterValue = Math::BigFloat->new( 0 );
       if ( $self->{'_COUNTER_THRESHOLD_TYPE'} eq 'none' ) {
-        $counterValue = $self->{'_COUNTER_COMPUTED_VALUE'}->copy();
+        $counterValue = $self->{'_COUNTER_VALUE_COMPUTED'}->copy();
       } elsif ( $self->{'_COUNTER_THRESHOLD_TYPE'} eq 'percentage' ) {
         if ( ( $self->{'_COUNTER_VALUE_MAX'}->is_nan() ) or
              ( $self->{'_COUNTER_VALUE_MAX'}->is_inf( '-' ) ) or
              ( $self->{'_COUNTER_VALUE_MAX'}->is_inf( '+' ) ) ) {
-          croak( 'No finite value limit defined for counter ['.$self->{'_COUNTER_ID'}.','.$self->{'_COUNTER_NAME'}.'], perhaps you have to set it ...' );
+          croak( 'No finite value limit defined for counter [ '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' ], perhaps you have to set it ...' );
         } else {
           if ( $self->{'_COUNTER_VALUE_MAX'}->is_zero() ) {
-            croak( 'Can\'t compute a percentage if value limit is 0 for counter ['.$self->{'_COUNTER_ID'}.','.$self->{'_COUNTER_NAME'}.'], perhaps you have to set it to 0.001' );
+            croak( 'Can\'t compute a percentage if value limit is 0 for counter [ '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' ], perhaps you have to set it to 0.001' );
           } else {
-            $counterValue = $self->{'_COUNTER_COMPUTED_VALUE'}->copy()
+            $counterValue = $self->{'_COUNTER_VALUE_COMPUTED'}->copy()
                                                               ->bmul( 100 ) 
                                                               ->bdiv( $self->{'_COUNTER_VALUE_MAX'} )
                                                               ->ffround( '-'.$self->{'_COUNTER_VALUE_ROUND'} );
-            &NagiosPlugins::Debug::debug( 7, blessed( $self ).'::checkThreshold', 'Compute round['.$self->{'_COUNTER_VALUE_ROUND'}.']( '.$self->{'_COUNTER_COMPUTED_VALUE'}.' x 100 / '.$self->{'_COUNTER_VALUE_MAX'}.' ) = "'.$counterValue.'"' );
+            &NagiosPlugins::Debug::debug( 7, blessed( $self ).'::checkThreshold', 'Compute round[ '.$self->{'_COUNTER_VALUE_ROUND'}.' ]( '.$self->{'_COUNTER_VALUE_COMPUTED'}.' x 100 / '.$self->{'_COUNTER_VALUE_MAX'}.' ) = "'.$counterValue.'"' );
           }
-          &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', 'Converting value "'.$self->{'_COUNTER_COMPUTED_VALUE'}.'" in percentage : "'.$counterValue.'"' );
+          &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', 'Converting value "'.$self->{'_COUNTER_VALUE_COMPUTED'}.'" in percentage : "'.$counterValue.'"' );
           $self->{'_COUNTER_VALUE_LABEL'} .= ' '.$counterValue.'%';
         }
       } else {
-        croak( 'Undefined counter threshold type "'.$self->{'_COUNTER_THRESHOLD_TYPE'}.'" (must be "none" or "percentage")' );
+        croak( 'Undefined counter threshold type "'.$self->{'_COUNTER_THRESHOLD_TYPE'}.'" ( must be "none" or "percentage" )' );
       } 
-      &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', 'Checking value '.$counterValue.' ('.$self->{'_COUNTER_COMPUTED_VALUE'}.') for counter "'.$self->{'_COUNTER_NAME'}.'" ...' );
+      &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', 'Checking value '.$counterValue.' ( '.$self->{'_COUNTER_VALUE_COMPUTED'}.' ) for counter "'.$self->{'_COUNTER_NAME'}.'" ...' );
      
-      my $extendedLabel = &convertToHumanReadable( $self->{'_COUNTER_COMPUTED_VALUE'}, $self->{'_COUNTER_VALUE_UNIT'} );
+      my $extendedLabel = &convertToHumanReadable( $self->{'_COUNTER_VALUE_COMPUTED'}, $self->{'_COUNTER_VALUE_UNIT'} );
       if ( $self->{'_COUNTER_THRESHOLD_TYPE'} eq 'percentage' ) {
         my $maxValueLabel = &convertToHumanReadable( $self->{'_COUNTER_VALUE_MAX'}, $self->{'_COUNTER_VALUE_UNIT'} );
         $extendedLabel .= ' / '.$maxValueLabel;
@@ -586,7 +597,7 @@ sub checkThreshold () {
       } 
       &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', $self->{'_COUNTER_MSG'}.' : ['.$self->{'_COUNTER_STATE'}.']' );
     } else {
-      croak( 'Undefined or bad value "'.$self->{'_COUNTER_COMPUTED_VALUE'}.'" for counter "'.$self->{'_COUNTER_NAME'}.'".' );
+      croak( 'Undefined or bad value "'.$self->{'_COUNTER_VALUE_COMPUTED'}.'" for counter "'.$self->{'_COUNTER_NAME'}.'".' );
     }
   }
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::checkThreshold', 'END checkThreshold' );
@@ -601,7 +612,8 @@ sub isHidden() {
   return( $self->{'_COUNTER_HIDDEN'} );
 }
 
-# Function get counter's id
+# Function getId return counter's id
+# [return] the counter ID.
 sub getId() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getId', 'BEGIN getId' );
@@ -610,7 +622,8 @@ sub getId() {
   return( $self->{'_COUNTER_ID'} );
 }
 
-# Function get the name of the linked counter's or undef if no linked counter is found. A linked counter is needed to compute average.
+# Function getLinkName return the name of the linked counter's or undef if no linked counter is found. A linked counter is needed to compute average.
+# [return] the linked counter's name
 sub getLinkName() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getLinkName', 'BEGIN getLinkName' );
@@ -624,6 +637,7 @@ sub getLinkName() {
 }
 
 # Function getPerfDataMsg return nagios performance data message or undef if it is an hidden counter
+# [return] the nagios performance data message or undef if it is an hidden counter
 sub getPerfDataMsg() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getPerfDataMsg', 'BEGIN getPerfDataMsg');
@@ -640,6 +654,7 @@ sub getPerfDataMsg() {
 }
 
 # Function getMsg return nagios message or undef if it is an hidden counter
+# [return] the nagios message or undef if it is an hidden counter
 sub getMsg() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getMsg', 'BEGIN getMsg' );
@@ -656,6 +671,7 @@ sub getMsg() {
 }
 
 # Function getState return nagios state or undef if it is an hidden counter
+# [return] the nagios state or undef if it is an hidden counter
 sub getState() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getState', 'BEGIN getState' );
@@ -671,6 +687,7 @@ sub getState() {
 }
 
 # Function getName return counter's name
+# [return] the counter's name
 sub getName() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getName', 'BEGIN getName');
@@ -680,6 +697,7 @@ sub getName() {
 }
 
 # Function getValue return counter's value
+# [return] the counter's value
 sub getValue() {
   my ( $self ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::getValue', 'BEGIN getValue');
@@ -723,9 +741,9 @@ sub setPerfData() {
           $counterCriticalThresholdMin = $self->{'_COUNTER_CRITICAL_THRESHOLD_MIN'}->copy();
         } elsif ( $self->{'_COUNTER_THRESHOLD_TYPE'} eq 'percentage' ) {
           if ( ( $self->{'_COUNTER_VALUE_MAX'}->is_nan() ) or
-               ( $self->{'_COUNTER_VALUE_MAX'}->is_inf('-') ) or
-               ( $self->{'_COUNTER_VALUE_MAX'}->is_inf('+') ) ) {
-            croak( 'No finite value limit defined for counter ['.$self->{'_COUNTER_ID'}.','.$self->{'_COUNTER_NAME'}.'], perhaps you have to set it ...' );
+               ( $self->{'_COUNTER_VALUE_MAX'}->is_inf( '-' ) ) or
+               ( $self->{'_COUNTER_VALUE_MAX'}->is_inf( '+' ) ) ) {
+            croak( 'No finite value limit defined for counter [ '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' ], perhaps you have to set it ...' );
           } else { 
             $counterWarningThresholdMin = $self->{'_COUNTER_WARNING_THRESHOLD_MIN'}->copy()
                                                                                    ->bmul( $self->{'_COUNTER_VALUE_MAX'} )
@@ -739,7 +757,7 @@ sub setPerfData() {
             &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', 'Converting maxCriticalThresholdValue "'.$self->{'_COUNTER_CRITICAL_THRESHOLD_MIN'}.'" in percentage : "'.$counterCriticalThresholdMin.'"' );
           }
         } else {
-          croak( 'Undefined counter threshold type "'.$self->{'_COUNTER_THRESHOLD_TYPE'}.'" (must be "none" are "percentage")' );
+          croak( 'Undefined counter threshold type "'.$self->{'_COUNTER_THRESHOLD_TYPE'}.'" ( must be "none" are "percentage" )' );
         }
         $self->{'_COUNTER_PERFDATA_MSG'} = "'".$self->{'_COUNTER_PERFDATA_LABEL'}."'=".$self->{'_COUNTER_PERFDATA_VALUE'}.$self->{'_COUNTER_PERFDATA_UNIT'}.';'.
                                            $counterWarningThresholdMin.';'.$counterCriticalThresholdMin.';'.
@@ -758,7 +776,7 @@ sub setPerfData() {
           if ( ( $self->{'_COUNTER_VALUE_MAX'}->is_nan() ) or
                ( $self->{'_COUNTER_VALUE_MAX'}->is_inf( '-' ) ) or
                ( $self->{'_COUNTER_VALUE_MAX'}->is_inf( '+' ) ) ) {
-            croak( 'No finite value limit defined for counter ['.$self->{'_COUNTER_ID'}.','.$self->{'_COUNTER_NAME'}.'], perhaps you have to set it ...' );
+            croak( 'No finite value limit defined for counter [ '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' ], perhaps you have to set it ...' );
           } else { 
             $counterWarningThresholdMax = $self->{'_COUNTER_WARNING_THRESHOLD_MAX'}->copy()
                                                                                    ->bmul( $self->{'_COUNTER_VALUE_MAX'} )
@@ -772,7 +790,7 @@ sub setPerfData() {
             &NagiosPlugins::Debug::debug( 6, blessed( $self ).'::checkThreshold', 'Converting maxCriticalThresholdValue "'.$self->{'_COUNTER_CRITICAL_THRESHOLD_MAX'}.'" in percentage : "'.$counterCriticalThresholdMax.'"' );
           }
         } else {
-          croak( 'Undefined counter threshold type "'.$self->{'_COUNTER_THRESHOLD_TYPE'}.'" (must be "none" are "percentage")' );
+          croak( 'Undefined counter threshold type "'.$self->{'_COUNTER_THRESHOLD_TYPE'}.'" ( must be "none" are "percentage" )' );
         }
         $self->{'_COUNTER_PERFDATA_MSG'} = "'".$self->{'_COUNTER_PERFDATA_LABEL'}."'=".$self->{'_COUNTER_PERFDATA_VALUE'}.$self->{'_COUNTER_PERFDATA_UNIT'}.';'.
                                            $counterWarningThresholdMax.';'.$counterCriticalThresholdMax.';'.$perfDataLimit;
@@ -799,8 +817,8 @@ sub setPreviousValue() {
   my ( $self, $previousValue ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::setPreviousValue', 'BEGIN setPreviousValue');
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::setPreviousValue', 'setPreviousValue( '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.', '.$previousValue.' )');
-  $self->{'_COUNTER_PREVIOUS_VALUE'} = Math::BigFloat->new( $previousValue );
-  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::setPreviousValue', 'setPreviousValue( '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' , '.$previousValue.' ) = '.$self->{'_COUNTER_PREVIOUS_VALUE'} );
+  $self->{'_COUNTER_VALUE_PREVIOUS'} = Math::BigFloat->new( $previousValue );
+  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::setPreviousValue', 'setPreviousValue( '.$self->{'_COUNTER_ID'}.', '.$self->{'_COUNTER_NAME'}.' , '.$previousValue.' ) = '.$self->{'_COUNTER_VALUE_PREVIOUS'} );
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::setPreviousValue','END setPreviousValue' );
 }
 
@@ -825,6 +843,8 @@ sub setTimeStamp() {
 }
 
 # Function setThreshold set warning or critical threshold for a counter
+# [in] $thresholdType : Type of threshold. Must be 'WARNING' or 'CRITICAL'
+# [in] $thresholdValue : The threshold's value
 sub setThreshold() {
   my ( $self, $thresholdType, $thresholdValue ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::set#Threshold', 'BEGIN setThreshold');
@@ -840,6 +860,7 @@ sub setThreshold() {
 }
 
 # Function setLink set a reference on linked counter or undef if no link is given
+# $link : a reference to a counter object to link or undef
 sub setLink() {
   my ( $self , $link ) = @_;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::setLink', 'BEGIN setLink' );
@@ -868,31 +889,31 @@ sub _initialize () {
   $self->{'_COUNTER_STATE'} = 'OK';
   $self->{'_COUNTER_MSG'}   = '';
   $self->{'_COUNTER_VALUE'}                    = Math::BigFloat->bnan();
+  $self->{'_COUNTER_VALUE_PREVIOUS'}           = Math::BigFloat->bnan();
   $self->{'_COUNTER_VALUE_COMPUTED_FUNCTION'}  = $none;
-  $self->{'_COUNTER_COMPUTED_VALUE'}           = Math::BigFloat->bnan();
-  $self->{'_COUNTER_PREVIOUS_VALUE'}           = Math::BigFloat->bnan();
+  $self->{'_COUNTER_VALUE_COMPUTED'}           = Math::BigFloat->bnan();
   $self->{'_COUNTER_VALUE_TIMESTAMP'}          = Math::BigFloat->bnan();
   $self->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'} = Math::BigFloat->bnan(); 
   $self->{'_COUNTER_VALUE_LABEL'}              = $self->{'_COUNTER_NAME'}; 
   $self->{'_COUNTER_VALUE_UNIT'}               = '';
-  $self->{'_COUNTER_VALUE_LIMIT_MAX'}                = Math::BigFloat->bnan();
-  $self->{'_COUNTER_VALUE_MIN'}                = Math::BigFloat->bnan();
-  $self->{'_COUNTER_VALUE_MIN'}          = Math::BigFloat->new( 0 );
-  $self->{'_COUNTER_VALUE_MAX'}          = Math::BigFloat->binf( '+' );
-  $self->{'_COUNTER_VALUE_ROUND'}              = Math::BigFloat->new( 3 );
-  $self->{'_COUNTER_VALUE_SCALE'}              = Math::BigFloat->new( 1 );
-  $self->{'_COUNTER_THRESHOLD_TYPE'}               = 'none';
-  $self->{'_COUNTER_WARNING_THRESHOLD_MIN'}        = Math::BigFloat->new( 0 );
-  $self->{'_COUNTER_WARNING_THRESHOLD_MAX'}        = Math::BigFloat->binf( '+' );
+  $self->{'_COUNTER_VALUE_LIMIT_MAX'}          = Math::BigFloat->bnan();
+  $self->{'_COUNTER_VALUE_LIMIT_MIN'}          = Math::BigFloat->bnan();
+  $self->{'_COUNTER_VALUE_MIN'} = Math::BigFloat->new( 0 );
+  $self->{'_COUNTER_VALUE_MAX'} = Math::BigFloat->binf( '+' );
+  $self->{'_COUNTER_VALUE_ROUND'} = Math::BigFloat->new( 3 );
+  $self->{'_COUNTER_VALUE_SCALE'} = Math::BigFloat->new( 1 );
+  $self->{'_COUNTER_THRESHOLD_TYPE'} = 'none';
+  $self->{'_COUNTER_WARNING_THRESHOLD_MIN'} = Math::BigFloat->new( 0 );
+  $self->{'_COUNTER_WARNING_THRESHOLD_MAX'} = Math::BigFloat->binf( '+' );
   $self->{'_COUNTER_WARNING_THRESHOLD_RANGE_TYPE'} = 'inside';
-  $self->{'_COUNTER_CRITICAL_THRESHOLD_MIN'}        = Math::BigFloat->new( 0 );
-  $self->{'_COUNTER_CRITICAL_THRESHOLD_MAX'}        = Math::BigFloat->binf( '+' );
+  $self->{'_COUNTER_CRITICAL_THRESHOLD_MIN'} = Math::BigFloat->new( 0 );
+  $self->{'_COUNTER_CRITICAL_THRESHOLD_MAX'} = Math::BigFloat->binf( '+' );
   $self->{'_COUNTER_CRITICAL_THRESHOLD_RANGE_TYPE'} = 'inside';
-  $self->{'_COUNTER_PERFDATA_COMPUTED_FUNCTION'} = $none;
   $self->{'_COUNTER_PERFDATA_LABEL'} = $self->{'_COUNTER_NAME'};
   $self->{'_COUNTER_PERFDATA_VALUE'} = Math::BigFloat->bnan();
   $self->{'_COUNTER_PERFDATA_UNIT'}  = '';
   $self->{'_COUNTER_PERFDATA_MSG'}   = '';
+  $self->{'_COUNTER_PERFDATA_COMPUTED_FUNCTION'} = $none;
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_initialize', 'END _initialize' );
 }
 
@@ -902,7 +923,7 @@ sub _set() {
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_set', 'BEGIN _set' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::_set', '_set( '.$self.', '.$hRef.', '.$selfKey.','.$hKey.', '.$isRequired.' )');
   if ( defined( $hRef->{$hKey} ) ) {
-    &NagiosPlugins::Debug::debug(8,blessed( $self ).'::_set','_set( '.$self.', '.$hRef.', '.$selfKey.', '.$hKey.', '.$isRequired.' ) = '.$hRef->{$hKey} );
+    &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::_set','_set( '.$self.', '.$hRef.', '.$selfKey.', '.$hKey.', '.$isRequired.' ) = '.$hRef->{$hKey} );
     if ( $hKey =~ /^(value|valueMin|valueLimitMax|valueMin|valueMax|valueScale|valueRound|perfDataValue|perfDataMin|perfDataMax|warningThreshold|criticalThreshold)$/ ) {
       $self->{$selfKey} = Math::BigFloat->new( $hRef->{$hKey} );
     } else {
@@ -911,7 +932,7 @@ sub _set() {
   } else {
     if ( $isRequired ) {
       &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_set', 'END _set' );
-      croak( 'You must defined a "'.$hKey.'" for this counter ('.$self->{'_COUNTER_NAME'}.').');
+      croak( 'You must defined a "'.$hKey.'" for this counter ( '.$self->{'_COUNTER_NAME'}.' ).');
     }
   }
   &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_set', 'END _set' );
@@ -920,16 +941,16 @@ sub _set() {
 # This function check if an counter attribute can be set and is set or not
 sub _validate() {
   my ( $self, $hRef ) = @_;
-  &NagiosPlugins::Debug::debug(9,blessed( $self ).'::_validate','BEGIN _validate');
+  &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_validate', 'BEGIN _validate' );
   foreach my $hKey ( keys( %{$hRef} ) ) {
     &NagiosPlugins::Debug::debug(8,blessed( $self ).'::_validate','_validate( '.$hKey.' )');
     if ( $hKey !~ /^(name|value|label|valueScale|valueUnit|valueMin|valueLimitMax|valueMax|valueMin|valueRound|thresholdType|warningThreshold|criticalThreshold|valueComputedFunction|perfDataComputedFunction|perfDataValue|perfDataLabel|perfDataUnit|perfDataMin|perfDataMax|hidden|linkName)$/ ) {
       &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_validate', 'END _validate' );
-      croak('Undefined counter propertie "'.$hKey.'".');
+      croak( 'Undefined counter propertie "'.$hKey.'".' );
     } else {
       if ( not( defined( $hRef->{$hKey} ) ) ) {
         &NagiosPlugins::Debug::debug( 9, blessed( $self ).'::_validate', 'END _validate' );
-        croak( 'You provide an undefined value "'.$hKey.'" for this counter ('.$self->{'_COUNTER_NAME'}.').');
+        croak( 'You provide an undefined value "'.$hKey.'" for this counter ( '.$self->{'_COUNTER_NAME'}.' ).');
       }
     } 
   }
@@ -984,14 +1005,15 @@ sub dump() {
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_MSG => '.$self->{'_COUNTER_MSG'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_STATE => '.$self->{'_COUNTER_STATE'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE => '.$self->{'_COUNTER_VALUE'}.',' );
-  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_COMPUTED_VALUE => '.$self->{'_COUNTER_COMPUTED_VALUE'}.',' );
-  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_PREVIOUS_VALUE => '.$self->{'_COUNTER_PREVIOUS_VALUE'}.'}' );
+  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_PREVIOUS => '.$self->{'_COUNTER_VALUE_PREVIOUS'}.'}' );
+  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_COMPUTED => '.$self->{'_COUNTER_VALUE_COMPUTED'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_COMPUTED_FUNCTION => '.$self->{'_COUNTER_VALUE_COMPUTED_FUNCTION'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_LABEL => '.$self->{'_COUNTER_VALUE_LABEL'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_TIMESTAMP => '.$self->{'_COUNTER_VALUE_TIMESTAMP'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_PREVIOUS_TIMESTAMP => '.$self->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_MIN => '.$self->{'_COUNTER_VALUE_MIN'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_MAX => '.$self->{'_COUNTER_VALUE_MAX'}.',' );
+  &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_LIMIT_MIN => '.$self->{'_COUNTER_VALUE_LIMIT_MIN'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_LIMIT_MAX => '.$self->{'_COUNTER_VALUE_LIMIT_MAX'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_MIN => '.$self->{'_COUNTER_VALUE_MIN'}.',' );
   &NagiosPlugins::Debug::debug( 8, blessed( $self ).'::dump', '    _COUNTER_VALUE_UNIT => '.$self->{'_COUNTER_VALUE_UNIT'}.',' );
@@ -1060,8 +1082,8 @@ tt
   $self->{'_COUNTER_STATE'} = 'OK';
   $self->{'_COUNTER_MSG'}   = '';
   $self->{'_COUNTER_VALUE_COMPUTED_FUNCTION'}  = $none;
-  $self->{'_COUNTER_COMPUTED_VALUE'}           = Math::BigFloat->bnan();
-  $self->{'_COUNTER_PREVIOUS_VALUE'}           = Math::BigFloat->bnan();
+  $self->{'_COUNTER_VALUE_COMPUTED'}           = Math::BigFloat->bnan();
+  $self->{'_COUNTER_VALUE_PREVIOUS'}           = Math::BigFloat->bnan();
   $self->{'_COUNTER_VALUE_TIMESTAMP'}          = Math::BigFloat->bnan();
   $self->{'_COUNTER_VALUE_PREVIOUS_TIMESTAMP'} = Math::BigFloat->bnan();
   $self->{'_COUNTER_VALUE_LABEL'}              = $self->{'_COUNTER_NAME'};

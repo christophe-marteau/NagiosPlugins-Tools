@@ -47,7 +47,7 @@ __END__
 
 =head1 SYNOPSIS
 
- #  Global variable for setting debugging level
+ # Global variable for setting debugging level
  $NagiosPlugins::Debug::Debug = <debug level>
 
  # Function for displaying debug message to stdout
